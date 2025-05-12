@@ -7,13 +7,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Schedule
@@ -31,6 +30,7 @@ import androidx.navigation.NavController
 import com.example.eventflow.data.AuthRepository
 import com.example.eventflow.models.EventModel
 import com.example.eventflow.navigation.ROUTE_ADD_EDIT_EVENT
+import com.example.eventflow.navigation.ROUTE_EVENT_DETAILS
 import com.example.eventflow.viewmodel.EventViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -43,6 +43,7 @@ fun EventListScreen(navController: NavController, eventViewModel: EventViewModel
     val authRepository = AuthRepository()
     val userId = authRepository.getCurrentUserId() ?: return
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // State for deletion confirmation
     val showDeleteDialog = remember { mutableStateOf(false) }
@@ -54,7 +55,6 @@ fun EventListScreen(navController: NavController, eventViewModel: EventViewModel
     // Fetch events when the screen is displayed
     LaunchedEffect(Unit) {
         eventViewModel.fetchEvents(userId)
-        // Simulate loading for smoother animations
         delay(500)
         isLoading.value = false
     }
@@ -84,6 +84,7 @@ fun EventListScreen(navController: NavController, eventViewModel: EventViewModel
                 Icon(Icons.Filled.Add, contentDescription = "Add Event")
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         content = { paddingValues ->
             Box(
                 modifier = Modifier
@@ -103,11 +104,21 @@ fun EventListScreen(navController: NavController, eventViewModel: EventViewModel
                     EventsList(
                         events = events,
                         onEventClick = { event ->
-                            navController.navigate(ROUTE_ADD_EDIT_EVENT + "?eventId=${event.eventId}")
+                            navController.navigate("event_details/${event.eventId}")
                         },
                         onDeleteClick = { event ->
                             eventToDelete.value = event
                             showDeleteDialog.value = true
+                        },
+                        onWishlistClick = { event ->
+                            scope.launch {
+                                val result = authRepository.addToWishlist(userId, event)
+                                if (result.isSuccess) {
+                                    snackbarHostState.showSnackbar("Added to wishlist")
+                                } else {
+                                    snackbarHostState.showSnackbar("Failed to add to wishlist")
+                                }
+                            }
                         }
                     )
                 }
@@ -185,14 +196,14 @@ fun EmptyEventsList() {
 fun EventsList(
     events: List<EventModel>,
     onEventClick: (EventModel) -> Unit,
-    onDeleteClick: (EventModel) -> Unit
+    onDeleteClick: (EventModel) -> Unit,
+    onWishlistClick: (EventModel) -> Unit
 ) {
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         itemsIndexed(events) { index, event ->
-            // Add animation delay based on index
             val animDelay = 50 * index
             var visible by remember { mutableStateOf(false) }
 
@@ -213,11 +224,11 @@ fun EventsList(
                 EventCard(
                     event = event,
                     onClick = { onEventClick(event) },
-                    onDeleteClick = { onDeleteClick(event) }
+                    onDeleteClick = { onDeleteClick(event) },
+                    onWishlistClick = { onWishlistClick(event) }
                 )
             }
         }
-        // Add extra space at the bottom for better FAB visibility
         item { Spacer(modifier = Modifier.height(80.dp)) }
     }
 }
@@ -227,23 +238,17 @@ fun EventsList(
 fun EventCard(
     event: EventModel,
     onClick: () -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onWishlistClick: () -> Unit
 ) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 2.dp
-        ),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            // Title row with delete button
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -251,32 +256,33 @@ fun EventCard(
             ) {
                 Text(
                     text = event.title,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
 
-                IconButton(
-                    onClick = onDeleteClick,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
-                    )
+                Row {
+                    IconButton(onClick = onWishlistClick, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.FavoriteBorder,
+                            contentDescription = "Add to Wishlist",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Date and time
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Outlined.Schedule,
                     contentDescription = null,
@@ -293,10 +299,7 @@ fun EventCard(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Location
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.LocationOn,
                     contentDescription = null,
@@ -313,7 +316,6 @@ fun EventCard(
                 )
             }
 
-            // Add description preview if available
             if (!event.description.isNullOrEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Divider()

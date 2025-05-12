@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -18,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -29,10 +27,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.eventflow.data.AuthRepository
 import com.example.eventflow.models.EventModel
-import com.example.eventflow.navigation.ROUTE_ADD_EDIT_EVENT
-import com.example.eventflow.navigation.ROUTE_DASHBOARD
-import com.example.eventflow.navigation.ROUTE_EVENT_LIST
-import com.example.eventflow.navigation.ROUTE_PROFILE
+import com.example.eventflow.navigation.*
 import com.example.eventflow.viewmodel.AuthViewModel
 import com.example.eventflow.viewmodel.EventViewModel
 import kotlinx.coroutines.delay
@@ -55,12 +50,15 @@ fun DashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Fetch events
-    eventViewModel.fetchEvents(userId)
+    LaunchedEffect(Unit) {
+        eventViewModel.fetchEvents(userId)
+    }
 
     // Bottom navigation items
     val navItems = listOf(
         NavItem("Home", Icons.Filled.Home, Icons.Outlined.Home, ROUTE_DASHBOARD),
         NavItem("Events", Icons.Filled.List, Icons.Outlined.List, ROUTE_EVENT_LIST),
+        NavItem("Wishlist", Icons.Filled.Favorite, Icons.Outlined.FavoriteBorder, ROUTE_WISHLIST),
         NavItem("Profile", Icons.Filled.AccountCircle, Icons.Outlined.AccountCircle, ROUTE_PROFILE)
     )
 
@@ -92,7 +90,7 @@ fun DashboardScreen(
                             coroutineScope.launch {
                                 isRefreshing = true
                                 eventViewModel.fetchEvents(userId)
-                                delay(800) // Show refresh animation
+                                delay(800)
                                 isRefreshing = false
                                 snackbarHostState.showSnackbar("Events refreshed")
                             }
@@ -169,7 +167,6 @@ fun DashboardScreen(
                     .padding(horizontal = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Welcome Card
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -235,7 +232,6 @@ fun DashboardScreen(
                     }
                 }
 
-                // Upcoming Events Section
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -269,7 +265,6 @@ fun DashboardScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Display Events
                 AnimatedVisibility(
                     visible = events.isEmpty(),
                     enter = fadeIn(tween(300)),
@@ -321,7 +316,17 @@ fun DashboardScreen(
                             EventCard(
                                 event = event,
                                 index = index,
-                                onClick = { navController.navigate("$ROUTE_ADD_EDIT_EVENT?eventId=${event.eventId}") }
+                                onClick = { navController.navigate("event_details/${event.eventId}") },
+                                onWishlistClick = {
+                                    coroutineScope.launch {
+                                        val result = authRepository.addToWishlist(userId, event)
+                                        if (result.isSuccess) {
+                                            snackbarHostState.showSnackbar("Added to wishlist")
+                                        } else {
+                                            snackbarHostState.showSnackbar("Failed to add to wishlist")
+                                        }
+                                    }
+                                }
                             )
 
                             if (index < minOf(events.size - 1, 4)) {
@@ -341,18 +346,17 @@ fun DashboardScreen(
                                     Text("View ${events.size - 5} More Events")
                                 }
 
-                                Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+                                Spacer(modifier = Modifier.height(80.dp))
                             }
                         } else {
                             item {
-                                Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+                                Spacer(modifier = Modifier.height(80.dp))
                             }
                         }
                     }
                 }
             }
 
-            // Refresh indicator
             if (isRefreshing) {
                 CircularProgressIndicator(
                     modifier = Modifier
@@ -367,7 +371,12 @@ fun DashboardScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EventCard(event: EventModel, index: Int, onClick: () -> Unit) {
+fun EventCard(
+    event: EventModel,
+    index: Int,
+    onClick: () -> Unit,
+    onWishlistClick: () -> Unit
+) {
     val cardColors = listOf(
         MaterialTheme.colorScheme.primaryContainer,
         MaterialTheme.colorScheme.secondaryContainer,
@@ -405,7 +414,6 @@ fun EventCard(event: EventModel, index: Int, onClick: () -> Unit) {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Event Icon with date indicator
             Box(
                 modifier = Modifier
                     .size(56.dp)
@@ -447,17 +455,12 @@ fun EventCard(event: EventModel, index: Int, onClick: () -> Unit) {
                         modifier = Modifier.weight(1f, fill = false)
                     )
 
-                    if (isUpcoming) {
-                        Badge(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ) {
-                            Text(
-                                text = "Upcoming",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
-                        }
+                    IconButton(onClick = onWishlistClick) {
+                        Icon(
+                            Icons.Default.FavoriteBorder,
+                            contentDescription = "Add to Wishlist",
+                            tint = textColors[colorIndex]
+                        )
                     }
                 }
 
@@ -560,6 +563,7 @@ fun getClosestEventDate(events: List<EventModel>): String {
     if (events.isEmpty()) return "No events"
 
     val currentDate = Calendar.getInstance().time
+
     val upcomingEvents = events
         .map { parseDate(it.date) }
         .filter { it.after(currentDate) }
@@ -577,13 +581,6 @@ fun getClosestEventDate(events: List<EventModel>): String {
         else -> "In ${diff / 7} weeks"
     }
 }
-
-// Extension function for Box background
-//fun Modifier.background(color: Color): Modifier {
-//    return this.then(
-//        androidx.compose.foundation.(color)
-//    )
-//}
 
 data class NavItem(
     val label: String,

@@ -4,8 +4,9 @@ data class EventModel(
     val eventId: String = "",
     val title: String = "",
     val description: String = "",
-    val date: String = "", // Format: "YYYY-MM-DD"
-    val time: String = "", // Format: "HH:MM"
+    val date: String = "",
+    val time: String = "",
     val location: String = "",
-    val userId: String = "" // Links event to the user
+    val userId: String = "",
+    val price: Double = 0.0 // New field for event cost
 )
